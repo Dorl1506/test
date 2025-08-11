@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Plinko — Demo (Provably Fair)</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="header-left">
+        <h1 aria-label="Plinko Game">Plinko</h1>
+        <span class="badge" aria-hidden="true">Demo</span>
+      </div>
+      <div class="header-right" role="group" aria-label="Account and balance">
+        <div class="balance" aria-live="polite">
+          Balance: <strong id="balance">10,000</strong>
+        </div>
+        <button id="resetBalanceBtn" class="btn btn-secondary" title="Reset demo balance">Reset</button>
+      </div>
+    </header>
+
+    <main class="layout" id="main" tabindex="-1">
+      <section class="panel controls" aria-label="Controls">
+        <h2 class="panel-title">Controls</h2>
+
+        <form class="controls-form" id="controlsForm" autocomplete="off">
+          <fieldset>
+            <legend>Bet</legend>
+            <div class="field-row">
+              <label for="betInput">Bet</label>
+              <div class="stepper">
+                <button type="button" id="betDecr" class="btn btn-secondary" aria-label="Decrease bet">−</button>
+                <input id="betInput" name="bet" type="number" min="0.01" step="0.01" value="1.00" inputmode="decimal" />
+                <button type="button" id="betIncr" class="btn btn-secondary" aria-label="Increase bet">+</button>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Risk</legend>
+            <div class="segmented" role="tablist" aria-label="Risk level">
+              <input type="radio" id="riskLow"   name="risk" value="low" checked />
+              <label role="tab" aria-controls="payoutStrip" for="riskLow">Low</label>
+              <input type="radio" id="riskMedium" name="risk" value="medium" />
+              <label role="tab" aria-controls="payoutStrip" for="riskMedium">Medium</label>
+              <input type="radio" id="riskHigh"  name="risk" value="high" />
+              <label role="tab" aria-controls="payoutStrip" for="riskHigh">High</label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Rows</legend>
+            <div class="field-row">
+              <label for="rowsSelect">Pins rows</label>
+              <input id="rowsSelect" name="rows" type="range" min="8" max="16" step="1" value="12" />
+              <output id="rowsValue" for="rowsSelect">12</output>
+            </div>
+          </fieldset>
+
+          <div class="actions-row">
+            <button id="dropBtn" type="button" class="btn btn-primary" aria-keyshortcuts="Space" title="Space">Drop</button>
+            <button id="instantToggle" type="button" class="btn btn-secondary" aria-pressed="false" aria-keyshortcuts="I" title="Instant mode (I)">Instant</button>
+          </div>
+
+          <details class="autoplay" id="autoplayDetails">
+            <summary>Autoplay</summary>
+            <div class="autoplay-grid">
+              <div class="field-row">
+                <label for="autoplayRuns">Rounds</label>
+                <input id="autoplayRuns" type="number" min="1" step="1" value="100" />
+              </div>
+              <div class="field-row">
+                <label for="speedSlider">Speed</label>
+                <input id="speedSlider" type="range" min="0" max="100" step="1" value="60" />
+              </div>
+              <div class="toggle-row">
+                <label class="toggle">
+                  <input id="autoplayOn" type="checkbox" />
+                  <span>Enable</span>
+                </label>
+                <div id="autoplayStatus" class="chip" aria-live="polite"></div>
+              </div>
+
+              <div class="field-row">
+                <label for="onWinPercent">On win</label>
+                <div class="inline">
+                  <input id="onWinPercent" type="number" step="1" value="0" />
+                  <span>% increase</span>
+                </div>
+                <label class="toggle small">
+                  <input id="onWinReset" type="checkbox" />
+                  <span>Reset to base</span>
+                </label>
+              </div>
+
+              <div class="field-row">
+                <label for="onLosePercent">On loss</label>
+                <div class="inline">
+                  <input id="onLosePercent" type="number" step="1" value="0" />
+                  <span>% increase</span>
+                </div>
+                <label class="toggle small">
+                  <input id="onLoseReset" type="checkbox" />
+                  <span>Reset to base</span>
+                </label>
+              </div>
+
+              <div class="field-row">
+                <label for="stopLoss">Stop-loss</label>
+                <input id="stopLoss" type="number" step="0.01" value="0" />
+              </div>
+              <div class="field-row">
+                <label for="takeProfit">Take-profit</label>
+                <input id="takeProfit" type="number" step="0.01" value="0" />
+              </div>
+            </div>
+          </details>
+
+          <div class="hotkeys">
+            <span>Hotkeys:</span>
+            <kbd>Space</kbd> Drop · <kbd>A</kbd> Autoplay · <kbd>I</kbd> Instant
+          </div>
+        </form>
+
+        <div class="payout-strip" aria-live="polite" aria-label="Payout multipliers">
+          <ul id="payoutStrip" class="payout-list" role="list"></ul>
+        </div>
+      </section>
+
+      <section class="panel board" aria-label="Game board">
+        <canvas id="boardCanvas" aria-label="Plinko board" role="img"></canvas>
+        <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+      </section>
+
+      <section class="panel info" aria-label="Info">
+        <h2 class="panel-title">Info</h2>
+        <div class="info-grid">
+          <div class="stat">
+            <div class="label">Last Result</div>
+            <div class="value">Bet <span id="lastBet">–</span>, <span id="lastMultiplier">–</span>× → Win <strong id="lastWin">–</strong></div>
+          </div>
+          <div class="stat">
+            <div class="label">Totals</div>
+            <div class="value">
+              Bets: <span id="totalBets">0</span> · Wagered: <span id="totalWagered">0</span> · Won: <span id="totalWon">0</span> · RTP: <span id="rtp">0%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Information tabs">
+          <button class="tab active" role="tab" aria-selected="true" data-tab="history">History</button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="fairness">Fairness</button>
+          <button class="tab" role="tab" aria-selected="false" data-tab="settings">Settings</button>
+        </div>
+
+        <div class="tabpanels">
+          <div id="tab-history" class="tabpanel active" role="tabpanel" aria-labelledby="History">
+            <ol id="historyList" class="history-list" reversed></ol>
+          </div>
+
+          <div id="tab-fairness" class="tabpanel" role="tabpanel" aria-labelledby="Fairness">
+            <div class="fairness">
+              <div class="field-row"><label>Server Seed (hash)</label><code id="serverSeedHash">–</code></div>
+              <div class="field-row"><label for="serverSeedInput">Server Seed (secret, optional for verify)</label><input id="serverSeedInput" type="text" placeholder="Enter server seed to verify past drops" /></div>
+              <div class="field-row"><label for="clientSeed">Client Seed</label><input id="clientSeed" type="text" /></div>
+              <div class="field-row"><label for="nonce">Nonce</label><input id="nonce" type="number" min="0" step="1" /></div>
+              <div class="field-row"><label for="dropIndex">Drop Index</label><input id="dropIndex" type="number" min="0" step="1" /></div>
+              <div class="field-row"><label>Result</label><output id="fairnessResult">–</output></div>
+              <div class="actions-row">
+                <button id="verifyBtn" class="btn btn-secondary">Verify</button>
+                <button id="revealRotateBtn" class="btn btn-secondary">Reveal/Rotate Server Seed</button>
+              </div>
+              <details class="seed-history">
+                <summary>Previous Server Seeds</summary>
+                <ul id="seedHistoryList" class="history-list"></ul>
+              </details>
+            </div>
+          </div>
+
+          <div id="tab-settings" class="tabpanel" role="tabpanel" aria-labelledby="Settings">
+            <div class="settings">
+              <label class="toggle">
+                <input id="soundToggle" type="checkbox" />
+                <span>Sound effects</span>
+              </label>
+              <div class="field-row">
+                <label for="animSpeed">Animation speed</label>
+                <input id="animSpeed" type="range" min="0.25" max="2" step="0.05" value="1" />
+              </div>
+              <div class="actions-row">
+                <button id="testRunBtn" class="btn btn-secondary">Test Run (1,000 instant)</button>
+              </div>
+              <div id="testRunOutput" class="test-output" aria-live="polite"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer" role="contentinfo">
+      <small>Demo only. Not gambling.</small>
+    </footer>
+
+    <script type="module" src="plinko.js"></script>
+  </body>
+</html>

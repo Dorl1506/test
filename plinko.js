@@ -64,6 +64,21 @@ function showToast(message) {
   showToast._t = setTimeout(() => { el.hidden = true; }, 2000);
 }
 
+// Canvas helpers
+function pathRoundRect(ctx, x, y, w, h, r = 6) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.arc(x + w - rr, y + rr, rr, -Math.PI / 2, 0);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.arc(x + w - rr, y + h - rr, rr, 0, Math.PI / 2);
+  ctx.lineTo(x + rr, y + h);
+  ctx.arc(x + rr, y + h - rr, rr, Math.PI / 2, Math.PI);
+  ctx.lineTo(x, y + rr);
+  ctx.arc(x + rr, y + rr, rr, Math.PI, 1.5 * Math.PI);
+}
+
 // -------------------- Persistence --------------------
 const STORAGE_KEY = 'plinko-demo-v1';
 function loadPersisted() {
@@ -115,13 +130,83 @@ const state = {
 
 // -------------------- Crypto RNG --------------------
 async function hmacSha256Hex(keyBytes, message) {
+  // Prefer Web Crypto; fall back to JS implementation if unavailable or failing
+  try {
+    if (!crypto?.subtle) throw new Error('subtle unavailable');
+    const enc = new TextEncoder();
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    );
+    const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(message));
+    const bytes = new Uint8Array(sig);
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return hmacSha256HexFallback(keyBytes, message);
+  }
+}
+
+// Minimal SHA-256 and HMAC-SHA256 fallback (bytes-based)
+function sha256BytesFallback(bytes) {
+  const K = new Uint32Array([
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+  ]);
+  function rotr(n, x) { return (x >>> n) | (x << (32 - n)); }
+  const ml = bytes.length * 8;
+  const withOne = new Uint8Array(((bytes.length + 9 + 63) >> 6) << 6);
+  withOne.set(bytes);
+  withOne[bytes.length] = 0x80;
+  const dv = new DataView(withOne.buffer);
+  dv.setUint32(withOne.length - 4, ml >>> 0);
+  dv.setUint32(withOne.length - 8, Math.floor(ml / 2 ** 32));
+  const w = new Uint32Array(64);
+  let a=0x6a09e667,b=0xbb67ae85,c=0x3c6ef372,d=0xa54ff53a,e=0x510e527f,f=0x9b05688c,g=0x1f83d9ab,h=0x5be0cd19;
+  for (let i = 0; i < withOne.length; i += 64) {
+    for (let j = 0; j < 16; j++) w[j] = dv.getUint32(i + j * 4);
+    for (let j = 16; j < 64; j++) {
+      const s0 = rotr(7, w[j - 15]) ^ rotr(18, w[j - 15]) ^ (w[j - 15] >>> 3);
+      const s1 = rotr(17, w[j - 2]) ^ rotr(19, w[j - 2]) ^ (w[j - 2] >>> 10);
+      w[j] = (w[j - 16] + s0 + w[j - 7] + s1) >>> 0;
+    }
+    let A=a,B=b,C=c,D=d,E=e,F=f,G=g,H=h;
+    for (let j = 0; j < 64; j++) {
+      const S1 = rotr(6,E) ^ rotr(11,E) ^ rotr(25,E);
+      const ch = (E & F) ^ ((~E) & G);
+      const temp1 = (H + S1 + ch + K[j] + w[j]) >>> 0;
+      const S0 = rotr(2,A) ^ rotr(13,A) ^ rotr(22,A);
+      const maj = (A & B) ^ (A & C) ^ (B & C);
+      const temp2 = (S0 + maj) >>> 0;
+      H=G; G=F; F=E; E=(D + temp1) >>> 0; D=C; C=B; B=A; A=(temp1 + temp2) >>> 0;
+    }
+    a=(a+A)>>>0; b=(b+B)>>>0; c=(c+C)>>>0; d=(d+D)>>>0; e=(e+E)>>>0; f=(f+F)>>>0; g=(g+G)>>>0; h=(h+H)>>>0;
+  }
+  const out = new Uint8Array(32);
+  const outDv = new DataView(out.buffer);
+  outDv.setUint32(0,a); outDv.setUint32(4,b); outDv.setUint32(8,c); outDv.setUint32(12,d);
+  outDv.setUint32(16,e); outDv.setUint32(20,f); outDv.setUint32(24,g); outDv.setUint32(28,h);
+  return out;
+}
+function hmacSha256HexFallback(keyBytes, message) {
   const enc = new TextEncoder();
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(message));
-  const bytes = new Uint8Array(sig);
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  let key = new Uint8Array(keyBytes);
+  if (key.length > 64) key = sha256BytesFallback(key);
+  const ipad = new Uint8Array(64); ipad.fill(0x36);
+  const opad = new Uint8Array(64); opad.fill(0x5c);
+  const k = new Uint8Array(64); k.fill(0); k.set(key);
+  for (let i = 0; i < 64; i++) { ipad[i] ^= k[i]; opad[i] ^= k[i]; }
+  const innerMsg = new Uint8Array(ipad.length + enc.encode(message).length);
+  innerMsg.set(ipad); innerMsg.set(enc.encode(message), 64);
+  const innerHash = sha256BytesFallback(innerMsg);
+  const outerMsg = new Uint8Array(opad.length + innerHash.length);
+  outerMsg.set(opad); outerMsg.set(innerHash, 64);
+  const out = sha256BytesFallback(outerMsg);
+  return Array.from(out).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
 function hexToBytes(hex) {
@@ -333,8 +418,7 @@ function drawBoard() {
     const w = 46; const h = 22;
     ctx.fillStyle = i === Math.floor(rows / 2) ? 'rgba(49,208,170,.18)' : 'rgba(21,28,41,.9)';
     ctx.strokeStyle = '#2a3b56';
-    ctx.beginPath();
-    ctx.roundRect(x - w/2, baseY, w, h, 6);
+    pathRoundRect(ctx, x - w/2, baseY, w, h, 6);
     ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#cfe0ff';
     ctx.font = '12px system-ui, sans-serif';
@@ -512,7 +596,12 @@ function wireControls() {
 
   $('#dropBtn').addEventListener('click', async () => {
     if (state.bet <= 0 || state.bet > state.balance) return showToast('Invalid bet or insufficient balance');
-    await resolveDrop({ instant: state.instant });
+    try {
+      await resolveDrop({ instant: state.instant });
+    } catch (err) {
+      console.error(err);
+      showToast('Drop failed. Check Fairness config.');
+    }
   });
 
   // hotkeys
